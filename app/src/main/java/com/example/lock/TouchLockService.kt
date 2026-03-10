@@ -12,7 +12,6 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
-import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
@@ -38,8 +37,14 @@ class TouchLockService : AccessibilityService() {
     private val screenOffReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_SCREEN_OFF && LockStateManager.isLocked.value) {
-                Log.d("TouchLock", "Screen turned off! Forcing it back on...")
-                forceScreenOn(context)
+                Log.d("TouchLock", "Screen turned off! Launching Activity to wake it up...")
+
+                // Blast the MainActivity to the front.
+                // Because of its new flags, it will wake the screen and show over the lockscreen.
+                val wakeIntent = Intent(context, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
+                context?.startActivity(wakeIntent)
             }
         }
     }
@@ -66,26 +71,6 @@ class TouchLockService : AccessibilityService() {
             showOverlay()
         }
         return super.onStartCommand(intent, flags, startId)
-    }
-
-    @Suppress("DEPRECATION")
-    private fun forceScreenOn(context: Context?) {
-        try {
-            val powerManager = context?.getSystemService(Context.POWER_SERVICE) as? PowerManager
-
-            // Acquire an aggressive wake lock to force the screen back on immediately
-            val wakeLock = powerManager?.newWakeLock(
-                PowerManager.FULL_WAKE_LOCK or
-                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                        PowerManager.ON_AFTER_RELEASE,
-                "TouchLock::AggressiveWakeLock"
-            )
-
-            // Hold it for 3 seconds to ensure the screen turns on, then let the WindowManager FLAG_KEEP_SCREEN_ON take over
-            wakeLock?.acquire(3000)
-        } catch (e: Exception) {
-            Log.e("TouchLock", "Failed to wake screen: ${e.message}")
-        }
     }
 
     private fun showOverlay() {
@@ -134,7 +119,7 @@ class TouchLockService : AccessibilityService() {
 
             mediaPlayer?.setAudioAttributes(audioAttributes)
 
-            val afd = resources.openRawResourceFd(R.raw.test)
+            val afd = resources.openRawResourceFd(R.raw.sound)
             mediaPlayer?.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
             afd.close()
 
@@ -166,7 +151,9 @@ class TouchLockService : AccessibilityService() {
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                     WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or // BYPASS LOCKSCREEN
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,     // WAKE UP
             PixelFormat.TRANSLUCENT
         )
 

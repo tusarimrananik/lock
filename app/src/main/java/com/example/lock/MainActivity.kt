@@ -12,6 +12,7 @@ import android.util.Log
 import android.view.Window
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -67,6 +68,22 @@ fun isAccessibilityServiceEnabled(context: Context, serviceClass: Class<*>): Boo
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // ==========================================
+        // AGGRESSIVE WAKE UP & LOCK SCREEN BYPASS
+        // ==========================================
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+        }
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
         enableEdgeToEdge()
 
         lifecycleScope.launch {
@@ -166,20 +183,34 @@ fun TouchLockScreen(modifier: Modifier = Modifier) {
         if (isAppLocked) {
             Text("Locked", style = MaterialTheme.typography.displayLarge)
         } else {
-            Button(onClick = {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.fromParts("package", context.packageName, null)
-                )
-                context.startActivity(intent)
-            }) {
+            // ==========================================
+            // BUTTON 1: OVERLAY
+            // ==========================================
+            Button(
+                onClick = {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.fromParts("package", context.packageName, null)
+                    )
+                    context.startActivity(intent)
+                },
+                // Disabled if permission is already given
+                enabled = !hasOverlayPermission
+            ) {
                 Text(if (hasOverlayPermission) "1. Overlay Permission: ON ✅" else "1. Grant Overlay Permission")
             }
 
-            Button(onClick = {
-                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                context.startActivity(intent)
-            }) {
+            // ==========================================
+            // BUTTON 2: ACCESSIBILITY
+            // ==========================================
+            Button(
+                onClick = {
+                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    context.startActivity(intent)
+                },
+                // Disabled if permission is already given OR if overlay hasn't been done yet
+                enabled = hasOverlayPermission && !hasAccessibilityPermission
+            ) {
                 Text(if (hasAccessibilityPermission) "2. Accessibility: ON ✅" else "2. Grant Accessibility Permission")
             }
         }
