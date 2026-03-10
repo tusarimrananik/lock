@@ -1,10 +1,11 @@
 package com.example.lock
 
 import android.accessibilityservice.AccessibilityService
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.PixelFormat
-import android.os.Handler
-import android.os.Looper
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -16,18 +17,32 @@ object LockStateManager {
     val isLocked = MutableStateFlow(false)
 }
 
+@SuppressLint("AccessibilityPolicy")
 class TouchLockService : AccessibilityService() {
 
     private var overlayView: View? = null
-    private val handler = Handler(Looper.getMainLooper())
 
-    private var lastBackPressTime = 0L
-    private val BACK_PRESS_COOLDOWN = 500L
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        Log.d("TouchLock", "Accessibility Service woke up! (Device Booted)")
+
+        if (Settings.canDrawOverlays(this)) {
+            showOverlay()
+            val intent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("TouchLock", "Failed to open MainActivity on boot: ${e.message}")
+            }
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             "START_LOCK" -> showOverlay()
-            "STOP_LOCK" -> removeOverlay() // New action to manually unlock
+            "STOP_LOCK" -> removeOverlay()
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -52,7 +67,7 @@ class TouchLockService : AccessibilityService() {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
@@ -62,8 +77,6 @@ class TouchLockService : AccessibilityService() {
 
         try {
             windowManager.addView(overlayView, params)
-            // The 30-second auto-unlock timer has been REMOVED.
-            // The lock is now permanent until STOP_LOCK is received.
         } catch (e: Exception) {
             Log.e("TouchLock", "Failed to add window: ${e.message}")
         }
@@ -92,12 +105,9 @@ class TouchLockService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!LockStateManager.isLocked.value) return
 
+        // Instant intercept: No 500ms wait time
         if (event?.packageName == "com.android.systemui") {
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastBackPressTime > BACK_PRESS_COOLDOWN) {
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                lastBackPressTime = currentTime
-            }
+            performGlobalAction(GLOBAL_ACTION_BACK)
         }
     }
 
